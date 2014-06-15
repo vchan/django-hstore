@@ -14,7 +14,8 @@ from . import utils, exceptions
 
 __all__ = [
     'HStoreDict',
-    'HStoreReferenceDictionary'
+    'HStoreReferenceDictionary',
+    'HStoreModeledDictionary'
 ]
 
 
@@ -128,3 +129,53 @@ class HStoreReferenceDictionary(HStoreDict):
             return self.__getitem__(key)
         except KeyError:
             return default
+
+
+class HStoreModeledDictionary(HStoreDict):
+    """
+    A dictionary which adds support for types
+    as long as keys are specified beforehand
+    
+    model = {
+        'key_name': {
+            'type': <TypeClass>,
+            'blank': True or False,
+            'default': 'default_value'
+        }
+    }
+    """
+    
+    def __init__(self, model=None, value=None, field=None, instance=None, connection=None, **params):
+        self.model = self.validate_model(model)
+        super(HStoreModeledDictionary, self).__init__(**params)
+    
+    def validate_model(self, model):
+        """
+        returns a validated method, raise exception if validation fails
+        """
+        if not model:
+            raise exceptions.HStoreModelException('No valid model specified for HStoreModeledDictionary')
+            
+        validated_model = {}
+        
+        for key, options in model.items():
+            # if options is not a dictionary default to dict
+            if isinstance(options, dict) is False:
+                options = {}
+            
+            # if no type specified default to string
+            if not options.get('type'):
+                options['type'] = type(self.__str__())
+            # if wrong type specified
+            elif isinstance(options.get('type'), type) is not True:
+                raise exceptions.HStoreModelException('type specified for key %s is not a valid type' % key)
+            
+            # blank defaults to False
+            options['blank'] = options.get('blank', False)
+            
+            # if not specified, default value is None
+            options['default'] = options.get('default', None)
+            
+            validated_model[key] = options
+        
+        return validated_model

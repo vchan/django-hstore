@@ -7,3 +7,7 @@ class HStoreDictException(Exception):
     def __init__(self, *args, **kwargs):
         self.json_error_message = kwargs.pop('json_error_message', None)
         super(HStoreDictException, self).__init__(*args, **kwargs)
+
+
+class HStoreModelException(Exception):
+    pass

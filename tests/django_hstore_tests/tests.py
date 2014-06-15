@@ -14,8 +14,8 @@ from django.utils.encoding import force_text
 
 from django_hstore import get_version
 from django_hstore.forms import DictionaryFieldWidget, ReferencesFieldWidget
-from django_hstore.fields import HStoreDict
-from django_hstore.exceptions import HStoreDictException
+from django_hstore.dict import HStoreDict, HStoreModeledDictionary
+from django_hstore.exceptions import HStoreDictException, HStoreModelException
 from django_hstore.utils import unserialize_references, serialize_references, acquire_reference
 
 from django_hstore_tests.models import *
@@ -711,6 +711,48 @@ class TestReferencesField(TestCase):
         self.assertEquals(result[0].pk, d.pk)
         result = NumberedDataBag.objects.filter(number__lte=1)
         self.assertEquals(result.count(), 0)
+
+
+class TestHStoreModeledDictionary(TestCase):
+    """ Test HStoreModeledDictionary """
+    
+    def test_model_validation(self):
+        # no model at all raises exception
+        with self.assertRaises(HStoreModelException):
+            d = HStoreModeledDictionary()
+        
+        # empty model raises exception
+        with self.assertRaises(HStoreModelException):
+            d = HStoreModeledDictionary(model={})
+        
+        # invalid type raises exception
+        with self.assertRaises(HStoreModelException):
+            d = HStoreModeledDictionary(model={
+                'key_name': {
+                    'type': 'wrongtype'
+                }
+            })
+        
+        d = HStoreModeledDictionary(model={
+            'key_name': ''
+        })
+        # key_name type defaults to string
+        self.assertEqual(d.model['key_name']['type'], type(d.__str__()))
+        # key_name blank defaults to False
+        self.assertEqual(d.model['key_name']['blank'], False)
+        # key_name default is None
+        self.assertIsNone(d.model['key_name']['default'])
+        
+        d = HStoreModeledDictionary(model={
+            'key_name': {
+                'type': int,
+                'blank': True,
+                'default': 0
+            }
+        })
+        self.assertEqual(d.model['key_name']['type'], int)
+        self.assertEqual(d.model['key_name']['blank'], True)
+        self.assertEqual(d.model['key_name']['default'], 0)
 
 
 if GEODJANGO:
