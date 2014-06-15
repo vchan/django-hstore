@@ -1,20 +1,32 @@
 from __future__ import unicode_literals, absolute_import
 
-from django.db.models.fields import Field
-from django.db.models.lookups import GreaterThan
-from django.db.models.lookups import GreaterThanOrEqual
-from django.db.models.lookups import LessThan
-from django.db.models.lookups import LessThanOrEqual
-from django.db.models.lookups import Contains
-from django.db.models.lookups import IContains
 from django.utils import six
+from django.db.models.lookups import (
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+    Contains,
+    IContains
+)
+
+
+__all__ = [
+    'HStoreComparisonLookupMixin',
+    'HStoreGreaterThan',
+    'HStoreGreaterThanOrEqual',
+    'HStoreLessThan',
+    'HStoreLessThanOrEqual',
+    'HStoreContains',
+    'HStoreIContains'
+]
 
 
 class HStoreComparisonLookupMixin(object):
     """
     Mixin for hstore comparison custom lookups.
     """
-
+    
     def as_postgresql(self, qn , connection):
         lhs, lhs_params = self.process_lhs(qn, connection)
         rhs, rhs_params = self.process_rhs(qn, connection)
@@ -43,11 +55,14 @@ class HStoreLessThanOrEqual(HStoreComparisonLookupMixin, LessThanOrEqual):
 
 
 class HStoreContains(Contains):
-
+    """
+    Contains lookup for HStore
+    """
+    
     def as_postgresql(self, qn, connection):
         lhs, lhs_params = self.process_lhs(qn, connection)
 
-        #FIXME: ::text cast is added by ``django.db.backends.postgresql_psycopg2.DatabaseOperations.lookup_cast``;
+        # FIXME: ::text cast is added by ``django.db.backends.postgresql_psycopg2.DatabaseOperations.lookup_cast``;
         # maybe there's a cleaner way to fix the cast for hstore columns
         if lhs.endswith('::text'):
             lhs = lhs[:-4] + 'hstore'
