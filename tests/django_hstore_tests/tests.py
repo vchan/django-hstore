@@ -12,7 +12,7 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from django.utils.encoding import force_text
 
-from django_hstore import get_version
+from django_hstore import get_version, hstore
 from django_hstore.forms import DictionaryFieldWidget, ReferencesFieldWidget
 from django_hstore.dict import HStoreDict, HStoreModeledDictionary
 from django_hstore.exceptions import HStoreDictException, HStoreModelException
@@ -713,11 +713,11 @@ class TestReferencesField(TestCase):
         self.assertEquals(result.count(), 0)
 
 
-class TestHStoreModeledDictionary(TestCase):
-    """ Test HStoreModeledDictionary """
+class TestModeledDictionary(TestCase):
+    """ Test HStoreModeledDictionary and ModeledDictionaryField """
     
     def setUp(self):
-        self.d = HStoreModeledDictionary(model={
+        self.d = HStoreModeledDictionary(schema={
             'int': {
                 'type': int,
                 'default': 0
@@ -726,7 +726,12 @@ class TestHStoreModeledDictionary(TestCase):
                 'type': bool
             },
             'str': {
-                'blank': True
+                'blank': True,
+                'null': True
+            },
+            'str2': {
+                'blank': True,
+                'null': False
             }
         })
     
@@ -738,40 +743,44 @@ class TestHStoreModeledDictionary(TestCase):
         
         # wrong type
         with self.assertRaises(HStoreModelException):
-            d = HStoreModeledDictionary(model='yo')
+            d = HStoreModeledDictionary(schema='yo')
         
         # empty model raises exception
         with self.assertRaises(HStoreModelException):
-            d = HStoreModeledDictionary(model={})
+            d = HStoreModeledDictionary(schema={})
         
         # invalid type raises exception
         with self.assertRaises(HStoreModelException):
-            d = HStoreModeledDictionary(model={
+            d = HStoreModeledDictionary(schema={
                 'key_name': {
                     'type': 'wrongtype'
                 }
             })
         
-        d = HStoreModeledDictionary(model={
+        d = HStoreModeledDictionary(schema={
             'key_name': ''
         })
         # key_name type defaults to string
-        self.assertEqual(d.model['key_name']['type'], type(d.__str__()))
+        self.assertEqual(d.schema['key_name']['type'], type(d.__str__()))
         # key_name blank defaults to False
-        self.assertEqual(d.model['key_name']['blank'], False)
+        self.assertEqual(d.schema['key_name']['blank'], False)
+        # key_name null defaults to False
+        self.assertEqual(d.schema['key_name']['null'], False)
         # key_name default is None
-        self.assertIsNone(d.model['key_name']['default'])
+        self.assertIsNone(d.schema['key_name']['default'])
         
-        d = HStoreModeledDictionary(model={
+        d = HStoreModeledDictionary(schema={
             'key_name': {
                 'type': int,
                 'blank': True,
+                'null': True,
                 'default': 0
             }
         })
-        self.assertEqual(d.model['key_name']['type'], int)
-        self.assertEqual(d.model['key_name']['blank'], True)
-        self.assertEqual(d.model['key_name']['default'], 0)
+        self.assertEqual(d.schema['key_name']['type'], int)
+        self.assertEqual(d.schema['key_name']['blank'], True)
+        self.assertEqual(d.schema['key_name']['null'], True)
+        self.assertEqual(d.schema['key_name']['default'], 0)
     
     def test_acceptable_key(self):
         d = self.d
@@ -801,14 +810,42 @@ class TestHStoreModeledDictionary(TestCase):
         d['int'] = 1
         d['bool'] = True
     
-    def test_get(self):
+    def test_get_default_value(self):
         d = self.d
         
         self.assertEqual(d.get('int'), 0)
         self.assertEqual(d['int'], 0)
+        self.assertEqual(d['bool'], None)
+    
+    def test_get_invalid_key(self):
+        d = self.d
         
         with self.assertRaises(HStoreModelException):
             print d['wrong_key']
+    
+    def test_set_value(self):
+        d = self.d
+        
+        d['int'] = 2
+        d['bool'] = True
+        d['str'] = 'ciao'
+        
+        self.assertEqual(d.get('int'), 2)
+        self.assertEqual(d['bool'], True)
+        self.assertEqual(d['str'], 'ciao')
+    
+    #def test_validate(self):
+    #    d = self.d
+    #    
+    #    with self.assertRaises(ValidationError):
+    #        d.validate()
+    
+    def test_generic_model_field(self):
+        with self.assertRaises(HStoreModelException):
+            field = hstore.ModeledDictionaryField()
+    
+    def test_specific_model_field(self):
+        d = ModeledDataBag()
 
 
 if GEODJANGO:

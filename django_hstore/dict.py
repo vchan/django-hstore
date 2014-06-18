@@ -3,6 +3,7 @@ try:
 except ImportError:
     import json
 
+import pickle
 from decimal import Decimal
 
 from django.utils import six
@@ -88,7 +89,7 @@ class HStoreDict(UnicodeMixin, dict):
         - convert True and False objects to "true" and "false" so they can be
           decoded back with the json library if needed
         - convert lists and dictionaries to json formatted strings
-        - leave alone all other objects because they might be representation of django models
+        - leave alone all other objects because they might be representation of django schemas
         """
         if isinstance(value, bool):
             return force_text(value).lower()
@@ -136,29 +137,64 @@ class HStoreModeledDictionary(HStoreDict):
     A dictionary which adds support for types
     as long as keys are specified beforehand
     
-    model = {
+    schema = {
         'key_name': {
             'type': <TypeClass>,
             'blank': True or False,
+            'null': True or False,
             'default': 'default_value'
         }
     }
     """
     
-    def __init__(self, model=None, value=None, field=None, instance=None, connection=None, **kwargs):
-        self.model = self.validate_model(model)
+    def __init__(self, value=None, field=None, instance=None, connection=None, schema=None, **kwargs):
+        self.schema = self.validate_schema(schema)
         super(HStoreModeledDictionary, self).__init__(**kwargs)
     
-    def validate_model(self, model):
+    def __setitem__(self, *args, **kwargs):
         """
-        returns a validated method, raise exception if validation fails
+        check key name and value type before setting a key/value
         """
-        if not model or not isinstance(model, dict):
-            raise exceptions.HStoreModelException('No valid model specified for HStoreModeledDictionary')
+        key = self.ensure_acceptable_key(args[0])
+        value = self.ensure_acceptable_value(key, args[1])
+        args = (key, value)
+        super(HStoreDict, self).__setitem__(*args, **kwargs)
+    
+    def __getitem__(self, *args, **kwargs):
+        """
+        get item or try returning default value for the specified key
+        raises KeyError exception otherwise
+        """
+        try:
+            value = super(HStoreModeledDictionary, self).__getitem__(*args, **kwargs)
+            return pickle.loads(value)
+        except KeyError as e:
+            return self._get_default_for_key(args[0])
+    
+    def _get_default_for_key(self, key):
+        """ returns the default value for the specified key """
+        try:
+            return self.schema[key].get('default', None)
+        except KeyError:
+            raise exceptions.HStoreModelException('%s is not a valid key' % key)
+    
+    def get(self, key, default=None):
+        """ overwrite get method to support schema default value """
+        try:
+            return self.__getitem__(key)
+        except KeyError:
+            return self._get_default_for_key(key)
+    
+    def validate_schema(self, schema):
+        """
+        returns a validated schema, raises exception if validation fails
+        """
+        if not schema or not isinstance(schema, dict):
+            raise exceptions.HStoreModelException('No valid schema specified for HStoreModeledDictionary')
             
-        validated_model = {}
+        validated_schema = {}
         
-        for key, options in model.items():
+        for key, options in schema.items():
             # if options is not a dictionary default to dict
             if isinstance(options, dict) is False:
                 options = {}
@@ -172,50 +208,20 @@ class HStoreModeledDictionary(HStoreDict):
             
             # blank defaults to False
             options['blank'] = options.get('blank', False)
-            
+            # null defaults to False
+            options['null'] = options.get('null', False)            
             # if not specified, default value is None
             options['default'] = options.get('default', None)
             
-            validated_model[key] = options
+            validated_schema[key] = options
         
-        return validated_model
-    
-    def __setitem__(self, *args, **kwargs):
-        """
-        check 
-        """
-        key = self.ensure_acceptable_key(args[0])
-        value = self.ensure_acceptable_value(key, args[1])
-        args = (key, value)
-        super(HStoreDict, self).__setitem__(*args, **kwargs)
-    
-    def __getitem__(self, *args, **kwargs):
-        """
-        get item or try returning default value for the specified key
-        raises KeyError exception otherwise
-        """
-        try:
-            return super(HStoreModeledDictionary, self).__getitem__(*args, **kwargs)
-        except KeyError as e:
-            return self._get_default_for_key(args[0])
-    
-    def get(self, key, default=None):
-        try:
-            return self.__getitem__(key)
-        except KeyError:
-            return self._get_default_for_key(key)
-        
-    def _get_default_for_key(self, key):
-        try:
-            return self.model[key].get('default', None)
-        except KeyError:
-            raise exceptions.HStoreModelException('%s is not a valid key' % key)
+        return validated_schema
     
     def ensure_acceptable_key(self, key):
         """
         ensure specified key is expected
         """
-        if key not in self.model.keys():
+        if key not in self.schema.keys():
             raise exceptions.HStoreModelException('%s is not a valid key' % key)
         return key
     
@@ -223,10 +229,18 @@ class HStoreModeledDictionary(HStoreDict):
         """
         ensure specified value is valid
         """
-        if type(value) is not self.model[key]['type']:
+        if type(value) is not self.schema[key]['type']:
             raise exceptions.HStoreModelException(
                 '%s is not a valid type for key %s, type %s expected' % (
-                    value, key, self.model[key]['type']
+                    value, key, self.schema[key]['type']
                 )
             )
+        # serialize data to mantain type
+        value = pickle.dumps(value)
         return super(HStoreModeledDictionary, self).ensure_acceptable_value(value)
+    
+    def validate(self):
+        """
+        validates data according to its schema
+        """
+        pass

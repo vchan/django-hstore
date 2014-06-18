@@ -6,6 +6,10 @@ class DataBagAdmin(admin.ModelAdmin):
     pass
 
 
+class ModeledDataBagAdmin(admin.ModelAdmin):
+    pass
+
+
 class DefaultsInlineAdmin(admin.StackedInline):
     model = DefaultsInline
     extra = 0
@@ -19,6 +23,7 @@ class RefsBagAdmin(admin.ModelAdmin):
     pass
 
 
+admin.site.register(ModeledDataBag, ModeledDataBagAdmin)
 admin.site.register(DataBag, DataBagAdmin)
 admin.site.register(DefaultsModel, DefaultsModelAdmin)
 admin.site.register(RefsBag, RefsBagAdmin)

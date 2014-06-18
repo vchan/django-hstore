@@ -10,6 +10,7 @@ GEODJANGO = settings.DATABASES['default']['ENGINE'] == 'django.contrib.gis.db.ba
 __all__ = [
     'Ref',
     'DataBag',
+    'ModeledDataBag',
     'NullableDataBag',
     'RefsBag',
     'NullableRefsBag',
@@ -37,9 +38,20 @@ class DataBag(HStoreModel):
     data = hstore.DictionaryField()
 
 
+class ModeledDataBag(HStoreModel):
+    name = models.CharField(max_length=32)
+    data = hstore.ModeledDictionaryField(schema={
+        'number': {
+            'type': int,
+            'default': 0
+        }
+    })
+
+
 class NullableDataBag(HStoreModel):
     name = models.CharField(max_length=32)
     data = hstore.DictionaryField(null=True)
+
 
 class RefsBag(HStoreModel):
     name = models.CharField(max_length=32)
