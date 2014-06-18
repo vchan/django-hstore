@@ -24,7 +24,7 @@ class HStoreDict(UnicodeMixin, dict):
     A dictionary subclass which implements hstore support.
     """
 
-    def __init__(self, value=None, field=None, instance=None, connection=None, **params):
+    def __init__(self, value=None, field=None, instance=None, connection=None, **kwargs):
         # if passed value is string
         # ensure is json formatted
         if isinstance(value, six.string_types):
@@ -48,7 +48,7 @@ class HStoreDict(UnicodeMixin, dict):
         for key, val in value.items():
             value[key] = self.ensure_acceptable_value(val)
 
-        super(HStoreDict, self).__init__(value, **params)
+        super(HStoreDict, self).__init__(value, **kwargs)
         self.field = field
         self.instance = instance
 
@@ -145,15 +145,15 @@ class HStoreModeledDictionary(HStoreDict):
     }
     """
     
-    def __init__(self, model=None, value=None, field=None, instance=None, connection=None, **params):
+    def __init__(self, model=None, value=None, field=None, instance=None, connection=None, **kwargs):
         self.model = self.validate_model(model)
-        super(HStoreModeledDictionary, self).__init__(**params)
+        super(HStoreModeledDictionary, self).__init__(**kwargs)
     
     def validate_model(self, model):
         """
         returns a validated method, raise exception if validation fails
         """
-        if not model:
+        if not model or not isinstance(model, dict):
             raise exceptions.HStoreModelException('No valid model specified for HStoreModeledDictionary')
             
         validated_model = {}
@@ -179,3 +179,54 @@ class HStoreModeledDictionary(HStoreDict):
             validated_model[key] = options
         
         return validated_model
+    
+    def __setitem__(self, *args, **kwargs):
+        """
+        check 
+        """
+        key = self.ensure_acceptable_key(args[0])
+        value = self.ensure_acceptable_value(key, args[1])
+        args = (key, value)
+        super(HStoreDict, self).__setitem__(*args, **kwargs)
+    
+    def __getitem__(self, *args, **kwargs):
+        """
+        get item or try returning default value for the specified key
+        raises KeyError exception otherwise
+        """
+        try:
+            return super(HStoreModeledDictionary, self).__getitem__(*args, **kwargs)
+        except KeyError as e:
+            return self._get_default_for_key(args[0])
+    
+    def get(self, key, default=None):
+        try:
+            return self.__getitem__(key)
+        except KeyError:
+            return self._get_default_for_key(key)
+        
+    def _get_default_for_key(self, key):
+        try:
+            return self.model[key].get('default', None)
+        except KeyError:
+            raise exceptions.HStoreModelException('%s is not a valid key' % key)
+    
+    def ensure_acceptable_key(self, key):
+        """
+        ensure specified key is expected
+        """
+        if key not in self.model.keys():
+            raise exceptions.HStoreModelException('%s is not a valid key' % key)
+        return key
+    
+    def ensure_acceptable_value(self, key, value):
+        """
+        ensure specified value is valid
+        """
+        if type(value) is not self.model[key]['type']:
+            raise exceptions.HStoreModelException(
+                '%s is not a valid type for key %s, type %s expected' % (
+                    value, key, self.model[key]['type']
+                )
+            )
+        return super(HStoreModeledDictionary, self).ensure_acceptable_value(value)

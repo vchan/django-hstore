@@ -716,10 +716,29 @@ class TestReferencesField(TestCase):
 class TestHStoreModeledDictionary(TestCase):
     """ Test HStoreModeledDictionary """
     
+    def setUp(self):
+        self.d = HStoreModeledDictionary(model={
+            'int': {
+                'type': int,
+                'default': 0
+            },
+            'bool': {
+                'type': bool
+            },
+            'str': {
+                'blank': True
+            }
+        })
+    
+    
     def test_model_validation(self):
         # no model at all raises exception
         with self.assertRaises(HStoreModelException):
             d = HStoreModeledDictionary()
+        
+        # wrong type
+        with self.assertRaises(HStoreModelException):
+            d = HStoreModeledDictionary(model='yo')
         
         # empty model raises exception
         with self.assertRaises(HStoreModelException):
@@ -753,6 +772,43 @@ class TestHStoreModeledDictionary(TestCase):
         self.assertEqual(d.model['key_name']['type'], int)
         self.assertEqual(d.model['key_name']['blank'], True)
         self.assertEqual(d.model['key_name']['default'], 0)
+    
+    def test_acceptable_key(self):
+        d = self.d
+        
+        with self.assertRaises(HStoreModelException):
+            d['wrong_key'] = 'i am wrong'
+        
+        with self.assertRaises(HStoreModelException):
+            d['wrong_key2'] = 'i am wrong'
+        
+        d['str'] = 'i am right'
+    
+    def test_get_default_value_for_key(self):
+        d = self.d
+        self.assertEqual(d._get_default_for_key('int'), 0)
+        self.assertEqual(d._get_default_for_key('bool'), None)
+    
+    def test_acceptable_value(self):
+        d = self.d
+        
+        with self.assertRaises(HStoreModelException):
+            d['int'] = 'i am wrong'
+        
+        with self.assertRaises(HStoreModelException):
+            d['bool'] = 999
+        
+        d['int'] = 1
+        d['bool'] = True
+    
+    def test_get(self):
+        d = self.d
+        
+        self.assertEqual(d.get('int'), 0)
+        self.assertEqual(d['int'], 0)
+        
+        with self.assertRaises(HStoreModelException):
+            print d['wrong_key']
 
 
 if GEODJANGO:
