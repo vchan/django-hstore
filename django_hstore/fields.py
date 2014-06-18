@@ -141,38 +141,6 @@ class ReferencesField(HStoreField):
         return utils.acquire_reference(value)
 
 
-class VirtualField(object):
-    rel = None
-
-    def contribute_to_class(self, cls, name):
-        self.attname = self.name = name
-        # cls._meta.add_virtual_field(self)
-        get_field = cls._meta.get_field
-        cls._meta.get_field = lambda name, many_to_many=True: self if name == self.name else get_field(name, many_to_many)
-        models.signals.pre_init.connect(self.pre_init, sender=cls) #, weak=False)
-        models.signals.post_init.connect(self.post_init, sender=cls) #, weak=False)
-        setattr(cls, name, self)
-
-    def pre_init(self, signal, sender, args, kwargs, **_kwargs):
-        sender._meta._field_name_cache.append(self)
-
-    def post_init(self, signal, sender, **kwargs):
-        sender._meta._field_name_cache[:] = sender._meta._field_name_cache[:-1]
-
-    def __get__(self, instance, instance_type=None):
-        if instance is None:
-            return self
-        return instance.field1 + '/' + instance.field2
-
-    def __set__(self, instance, value):
-        if instance is None:
-             raise AttributeError(u"%s must be accessed via instance" % self.related.opts.object_name)
-        instance.field1, instance.field2 = value.split('/')
-
-    def to_python(self, value):
-        return value
-
-
 # south compatibility
 try:
     from south.modelsinspector import add_introspection_rules
