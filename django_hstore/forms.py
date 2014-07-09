@@ -40,7 +40,7 @@ def validate_hstore(value):
         if isinstance(value, dict) or isinstance(value, list):
             dictionary[key] = json.dumps(value)
         elif isinstance(value, bool) or isinstance(value, int) or isinstance(value, float):
-            dictionary[key] = unicode(value).lower()
+            dictionary[key] = str(value).lower()
 
     return dictionary
 
@@ -48,6 +48,8 @@ def validate_hstore(value):
 class JsonMixin(object):
 
     def to_python(self, value):
+        if value in self.empty_values:
+            return None
         return validate_hstore(value)
 
     def render(self, name, value, attrs=None):
