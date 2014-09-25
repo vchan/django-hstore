@@ -1,145 +1,24 @@
 from __future__ import unicode_literals, absolute_import
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
-
-from decimal import Decimal
-
-import django
 from django.db import models, connection
-from django.utils import six
-from django.utils.encoding import force_text
 from django.utils.translation import ugettext_lazy as _
+from django.core.exceptions import ImproperlyConfigured
+from django import get_version
 
-from . import forms, utils, exceptions
-from .compat import UnicodeMixin
-
-
-class HStoreDict(UnicodeMixin, dict):
-    """
-    A dictionary subclass which implements hstore support.
-    """
-
-    def __init__(self, value=None, field=None, instance=None, **params):
-        # if passed value is string
-        # ensure is json formatted
-        if isinstance(value, six.string_types):
-            try:
-                value = json.loads(value)
-            except ValueError as e:
-                raise exceptions.HStoreDictException(
-                    'HStoreDict accepts only valid json formatted strings.',
-                    json_error_message=force_text(e)
-                )
-        elif value is None:
-            value = {}
-
-        # allow dictionaries only
-        if not isinstance(value, dict):
-            raise exceptions.HStoreDictException(
-                'HStoreDict accepts only dictionary objects, None and json formatted string representations of json objects'
-            )
-
-        # ensure values are acceptable
-        for key, val in value.items():
-            value[key] = self.ensure_acceptable_value(val)
-
-        super(HStoreDict, self).__init__(value, **params)
-        self.field = field
-        self.instance = instance
-
-    def __setitem__(self, *args, **kwargs):
-        args = (args[0], self.ensure_acceptable_value(args[1]))
-        super(HStoreDict, self).__setitem__(*args, **kwargs)
-
-    # This method is used both for python3 and python2
-    # thanks to UnicodeMixin
-    def __unicode__(self):
-        if self:
-            return force_text(json.dumps(self))
-        return u''
-
-    def __getstate__(self):
-        return self.__dict__
-
-    def __copy__(self):
-        return self.__class__(self, self.field)
-
-    def update(self, *args, **kwargs):
-        for key, value in dict(*args, **kwargs).iteritems():
-            self[key] = value
-
-    def ensure_acceptable_value(self, value):
-        """
-        - ensure booleans, integers, floats, Decimals, lists and dicts are
-          converted to string
-        - convert True and False objects to "true" and "false" so they can be
-          decoded back with the json library if needed
-        - convert lists and dictionaries to json formatted strings
-        - leave alone all other objects because they might be representation of django models
-        """
-        if isinstance(value, bool):
-            return force_text(value).lower()
-        elif isinstance(value, (int, float, Decimal)):
-            return force_text(value)
-        elif isinstance(value, list) or isinstance(value, dict):
-            return force_text(json.dumps(value))
-        else:
-            return value
-
-    def remove(self, keys):
-        """
-        Removes the specified keys from this dictionary.
-        """
-        queryset = self.instance._base_manager.get_query_set()
-        queryset.filter(pk=self.instance.pk).hremove(self.field.name, keys)
-
-
-class HStoreReferenceDictionary(HStoreDict):
-    """
-    A dictionary which adds support to storing references to models
-    """
-    def __getitem__(self, *args, **kwargs):
-        value = super(self.__class__, self).__getitem__(*args, **kwargs)
-        # if value is a string it needs to be converted to model instance
-        if isinstance(value, six.string_types):
-            reference = utils.acquire_reference(value)
-            self.__setitem__(args[0], reference)
-            return reference
-        # otherwise just return the relation
-        return value
-
-    def get(self, key, default=None):
-        try:
-            return self.__getitem__(key)
-        except KeyError:
-            return default
-
-
-class HStoreDescriptor(models.fields.subclassing.Creator):
-    def __set__(self, obj, value):
-        value = self.field.to_python(value)
-        if isinstance(value, dict):
-            value = HStoreDict(
-                value=value, field=self.field, instance=obj
-            )
-        obj.__dict__[self.field.name] = value
-
-
-class HStoreReferenceDescriptor(models.fields.subclassing.Creator):
-    def __set__(self, obj, value):
-        value = self.field.to_python(value)
-        if isinstance(value, dict):
-            value = HStoreReferenceDictionary(
-                value=value, field=self.field, instance=obj
-            )
-        obj.__dict__[self.field.name] = value
+from .descriptors import *
+from .dict import *
+from .virtual import *
+from . import forms, utils
 
 
 class HStoreField(models.Field):
     """ HStore Base Field """
+
+    def __init_dict(self, value):
+        """
+        initializes HStoreDict
+        """
+        return HStoreDict(value, self)
 
     def validate(self, value, *args):
         super(HStoreField, self).validate(value, *args)
@@ -153,20 +32,22 @@ class HStoreField(models.Field):
         """
         Returns the default value for this field.
         """
+        # if default defined
         if self.has_default():
+            # if default is callable
             if callable(self.default):
-                return HStoreDict(self.default(), self)
+                return self.__init_dict(self.default())
+            # if it's a dict
             elif isinstance(self.default, dict):
-                return HStoreDict(self.default, self)
+                return self.__init_dict(self.default)
+            # else just return it
             return self.default
-        if (not self.empty_strings_allowed or (self.null and
-                   not connection.features.interprets_empty_strings_as_nulls)):
-            return None
-        return HStoreDict({}, self)
+        # default to empty dict
+        return self.__init_dict({})
 
     def get_prep_value(self, value):
         if isinstance(value, dict) and not isinstance(value, HStoreDict):
-            return HStoreDict(value, self)
+            return self.__init_dict(value)
         else:
             return value
 
@@ -188,7 +69,7 @@ class HStoreField(models.Field):
         return name, args, kwargs
 
 
-if django.get_version() >= '1.7':
+if get_version() >= '1.7':
     from .lookups import *
 
     HStoreField.register_lookup(HStoreGreaterThan)
@@ -202,12 +83,88 @@ if django.get_version() >= '1.7':
 class DictionaryField(HStoreField):
     description = _("A python dictionary in a postgresql hstore field.")
 
-    def formfield(self, **params):
-        params['form_class'] = forms.DictionaryField
-        return super(DictionaryField, self).formfield(**params)
+    def __init__(self, *args, **kwargs):
+        self.schema = kwargs.pop('schema', None)
+        self.schema_mode = False
+
+        # if schema parameter is supplied the behaviour is slightly different
+        if self.schema is not None:
+            # schema mode available only from django 1.6 onward
+            if get_version()[0:3] <= '1.5':
+                raise ImproperlyConfigured('schema mode for DictionaryField is available only from django 1.6 onward')
+            self._validate_schema(self.schema)
+            self.schema_mode = True
+            # DictionaryField with schema is not editable via admin
+            kwargs['editable'] = False
+            # DictionaryField with schema defaults to empty dict
+            kwargs['default'] = kwargs.get('default', {})
+            # null defaults to True to facilitate migrations
+            kwargs['null'] = kwargs.get('null', True)
+
+        super(DictionaryField, self).__init__(*args, **kwargs)
+
+    def __init_dict(self, value):
+        """
+        init HStoreDict
+        pass schema_mode=True if in "schema" mode
+        """
+        return HStoreDict(value, self, schema_mode=self.schema_mode)
+
+    def contribute_to_class(self, cls, name):
+        super(DictionaryField, self).contribute_to_class(cls, name)
+        setattr(cls, self.name, HStoreDescriptor(self, schema_mode=self.schema_mode))
+
+        if self.schema:
+            self._create_hstore_virtual_fields(cls, name)
+
+    def _validate_schema(self, schema):
+        if not isinstance(schema, list):
+            raise ValueError('schema parameter must be a list')
+
+        if len(schema) == 0:
+            raise ValueError('schema parameter cannot be an empty list')
+
+        for field in schema:
+            if not isinstance(field, dict):
+                raise ValueError('schema parameter must contain dicts representing fields, read the docs to see the format')
+
+            if 'name' not in field:
+                raise ValueError('schema element %s is missing the name key' % field)
+
+            if 'class' not in field:
+                raise ValueError('schema element %s is missing the class key' % field)
+
+    def _create_hstore_virtual_fields(self, cls, hstore_field_name):
+        """
+        this methods creates all the virtual fields automatically by reading the schema attribute
+        """
+        # add hstore_virtual_fields attribute to class
+        if not hasattr(cls, '_hstore_virtual_fields'):
+            cls._hstore_virtual_fields = {}
+
+        for field in self.schema:
+            # initialize the virtual field by specifying the class, the kwargs and the hstore field name
+            virtual_field = create_hstore_virtual_field(field['class'],
+                                                        field.get('kwargs', {}),
+                                                        hstore_field_name)
+            # this will call the contribute_to_class method in virtual.HStoreVirtualMixin
+            cls.add_to_class(field['name'], virtual_field)
+            # add this field to hstore_virtual_fields dict
+            cls._hstore_virtual_fields[field['name']] = virtual_field
+
+    def formfield(self, **kwargs):
+        kwargs['form_class'] = forms.DictionaryField
+        return super(DictionaryField, self).formfield(**kwargs)
 
     def _value_to_python(self, value):
         return value
+
+    def south_field_triple(self):
+        name, args, kwargs = super(DictionaryField, self).south_field_triple()
+        # if schema mode replace the default value {} with None as {} would break south
+        if self.schema_mode:
+            kwargs['default'] = None
+        return name, args, kwargs
 
 
 class ReferencesField(HStoreField):
@@ -217,9 +174,9 @@ class ReferencesField(HStoreField):
         super(ReferencesField, self).contribute_to_class(cls, name)
         setattr(cls, self.name, HStoreReferenceDescriptor(self))
 
-    def formfield(self, **params):
-        params['form_class'] = forms.ReferencesField
-        return super(ReferencesField, self).formfield(**params)
+    def formfield(self, **kwargs):
+        kwargs['form_class'] = forms.ReferencesField
+        return super(ReferencesField, self).formfield(**kwargs)
 
     def get_prep_lookup(self, lookup, value):
         if isinstance(value, dict):
@@ -230,7 +187,7 @@ class ReferencesField(HStoreField):
         return utils.serialize_references(value)
 
     def to_python(self, value):
-        return value if isinstance(value, dict) else HStoreReferenceDictionary({})
+        return value if isinstance(value, dict) else HStoreReferenceDict({})
 
     def _value_to_python(self, value):
         return utils.acquire_reference(value)

@@ -1,12 +1,25 @@
 from __future__ import unicode_literals, absolute_import
 
-from django.db.models.lookups import GreaterThan
-from django.db.models.lookups import GreaterThanOrEqual
-from django.db.models.lookups import LessThan
-from django.db.models.lookups import LessThanOrEqual
-from django.db.models.lookups import Contains
-from django.db.models.lookups import IContains
 from django.utils import six
+from django.db.models.lookups import (
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+    Contains,
+    IContains
+)
+
+
+__all__ = [
+    'HStoreComparisonLookupMixin',
+    'HStoreGreaterThan',
+    'HStoreGreaterThanOrEqual',
+    'HStoreLessThan',
+    'HStoreLessThanOrEqual',
+    'HStoreContains',
+    'HStoreIContains'
+]
 
 
 class HStoreComparisonLookupMixin(object):
@@ -21,7 +34,13 @@ class HStoreComparisonLookupMixin(object):
             param = rhs_params[0]
             sign = (self.lookup_name[0] == 'g' and '>%s' or '<%s') % (self.lookup_name[-1] == 'e' and '=' or '')
             param_keys = list(param.keys())
-            return '%s->\'%s\' %s %%s' % (lhs, param_keys[0], sign), param.values()
+            conditions = []
+
+            for key in param_keys:
+                conditions.append('(%s->\'%s\') %s %%s' % (lhs, key, sign))
+
+            return (" AND ".join(conditions), param.values())
+
         raise ValueError('invalid value')
 
 

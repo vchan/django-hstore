@@ -3,14 +3,12 @@ import sys
 import django
 from django.conf import settings
 from django.db.backends.signals import connection_created
+from psycopg2.extras import register_hstore
 
 try:
     from django.apps import AppConfig
 except ImportError:
     AppConfig = object
-
-from .utils import register_hstore
-
 
 # keep backward compatibility until django hstore 1.3.0
 HSTORE_GLOBAL_REGISTER = getattr(settings, "DJANGO_HSTORE_GLOBAL_REGISTER", None)
@@ -53,7 +51,7 @@ class ConnectionCreateHandler(object):
 
         # List comprehension is used instead of for statement
         # only for performance.
-        [x(connection) for x in handlers]
+        return [x(connection) for x in handlers]
 
     def attach_handler(self, func, vendor=None, unique=False):
         if unique:
